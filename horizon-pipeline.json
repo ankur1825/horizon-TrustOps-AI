@@ -1,0 +1,7 @@
+{
+  "projectName": "horizon-demo-nodejs",
+  "projectType": "NodeJs",
+  "branch": "main",
+  "containerPort": 3000,
+  "healthPath": "/health"
+}
