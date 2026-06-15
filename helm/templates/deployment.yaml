@@ -1,0 +1,224 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}
+  namespace: {{ .Values.namespaceOverride }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: fix-app-data-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 10001:10001 {{ .Values.persistence.mountPath }}"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: app-data
+              mountPath: {{ .Values.persistence.mountPath }}
+      containers:
+        - name: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DB_PATH
+              value: /app/data
+            - name: JENKINS_URL
+              value: {{ .Values.jenkins.url | default "https://horizonrelevance.com/jenkins" | quote }}
+            - name: JENKINS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default .Chart.Name .Values.jenkins.existingSecret | quote }}
+                  key: {{ .Values.jenkins.userKey | default "JENKINS_USER" | quote }}
+            - name: JENKINS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default .Chart.Name .Values.jenkins.existingSecret | quote }}
+                  key: {{ .Values.jenkins.tokenKey | default "JENKINS_TOKEN" | quote }}
+            - name: JENKINS_RUNTIME_ROLE_ARN
+              value: {{ .Values.jenkins.runtimeRoleArn | default "" | quote }}
+            - name: ENVIRONMENT_PREFLIGHT_ENFORCED
+              value: {{ .Values.environmentPreflight.enforce | quote }}
+            - name: ENVIRONMENT_IAM_MODE
+              value: {{ .Values.environmentPreflight.iamMode | default "validation-only" | quote }}
+            - name: ENVIRONMENT_EKS_ACCESS_MODE
+              value: {{ .Values.environmentPreflight.eksAccessMode | default "namespace-scoped" | quote }}
+            - name: BACKEND_RBAC_ENFORCEMENT_ENABLED
+              value: {{ .Values.auth.rbacEnforcementEnabled | quote }}
+            - name: BACKEND_SESSION_TTL_SECONDS
+              value: {{ .Values.auth.sessionTtlSeconds | quote }}
+            {{- if .Values.auth.sessionSecret.existingSecret }}
+            - name: BACKEND_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.sessionSecret.existingSecret | quote }}
+                  key: {{ .Values.auth.sessionSecret.key | quote }}
+            {{- end }}
+            # - name: REQUESTS_CA_BUNDLE
+            #   value: "/certs/jenkins-ca.pem"   # Path inside container
+            - name: LDAP_MANAGER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ldap.managerPasswordSecret.name | quote }}
+                  key: {{ .Values.ldap.managerPasswordSecret.key | quote }}
+            - name: LDAP_SERVER
+              value: {{ .Values.ldap.server | quote }}
+            - name: LDAP_USER
+              value: {{ .Values.ldap.bindDN | quote }}
+            - name: LDAP_BASE_DN
+              value: {{ .Values.ldap.baseDN | quote }}
+            - name: LDAP_SEARCH_FILTER
+              value: {{ .Values.ldap.searchFilter | quote }}
+            - name: LDAP_UID_ATTRIBUTE
+              value: {{ .Values.ldap.uidAttribute | quote }}
+            - name: LDAP_DISPLAY_NAME_ATTRIBUTE
+              value: {{ .Values.ldap.displayNameAttribute | quote }}
+            - name: LDAP_MAIL_ATTRIBUTE
+              value: {{ .Values.ldap.mailAttribute | quote }}
+            - name: LDAP_GROUP_BASE_DN
+              value: {{ .Values.ldap.groupBaseDN | quote }}
+            - name: LDAP_GROUP_SEARCH_FILTER
+              value: {{ .Values.ldap.groupSearchFilter | quote }}
+            - name: LDAP_GROUP_MEMBER_ATTRIBUTE
+              value: {{ .Values.ldap.groupMemberAttribute | quote }}
+            - name: LDAP_GROUP_NAME_ATTRIBUTE
+              value: {{ .Values.ldap.groupNameAttribute | quote }}
+            - name: LDAP_USER_GROUP_ATTRIBUTE
+              value: {{ .Values.ldap.userGroupAttribute | quote }}
+            - name: LDAP_ROLE_GROUP_MAPPINGS
+              value: {{ .Values.ldap.roleGroupMappings | toJson | quote }}
+            - name: ENVIRONMENT_CATALOG_FILE
+              value: {{ .Values.environmentCatalog.configFile | quote }}
+            {{- if .Values.environmentCatalog.syncTokenSecret.existingSecret }}
+            - name: ENVIRONMENT_CATALOG_SYNC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.environmentCatalog.syncTokenSecret.existingSecret | quote }}
+                  key: {{ .Values.environmentCatalog.syncTokenSecret.key | default "token" | quote }}
+            {{- end }}
+            - name: GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: github-webhook-secret
+                  key: GITHUB_WEBHOOK_SECRET
+            - name: ENTERPRISE_LICENSE_ENFORCEMENT_ENABLED
+              value: {{ .Values.enterprise.licenseEnforcementEnabled | quote }}
+            - name: ENTERPRISE_CLIENT_ID
+              value: {{ .Values.enterprise.clientId | quote }}
+            - name: ENTERPRISE_CLIENT_NAME
+              value: {{ .Values.enterprise.clientName | quote }}
+            - name: ENTERPRISE_LICENSE_KEY
+              value: {{ .Values.enterprise.licenseKey | quote }}
+            - name: ENTERPRISE_LICENSE_TYPE
+              value: {{ .Values.enterprise.licenseType | quote }}
+            - name: ENTERPRISE_LICENSE_EXPIRES_AT
+              value: {{ .Values.enterprise.licenseExpiresAt | quote }}
+            - name: ENTERPRISE_ENABLED_PIPELINES
+              value: {{ .Values.enterprise.enabledPipelines | quote }}
+            - name: ENTERPRISE_ENABLED_FEATURES
+              value: {{ .Values.enterprise.enabledFeatures | quote }}
+            - name: ENTERPRISE_ALLOWED_ENVIRONMENTS
+              value: {{ .Values.enterprise.allowedEnvironments | quote }}
+            - name: ENTERPRISE_ALLOWED_AWS_ACCOUNT_IDS
+              value: {{ .Values.enterprise.allowedAwsAccountIds | quote }}
+            - name: ENTERPRISE_INSTALLATION_ID
+              value: {{ .Values.enterprise.installationId | quote }}
+            - name: ENTERPRISE_AWS_ACCOUNT_ID
+              value: {{ .Values.enterprise.awsAccountId | quote }}
+            - name: ENTERPRISE_AWS_REGION
+              value: {{ .Values.enterprise.awsRegion | quote }}
+            - name: ENTERPRISE_PRODUCT_VERSION
+              value: {{ .Values.enterprise.productVersion | quote }}
+            - name: ENTERPRISE_MAX_REPOS
+              value: {{ .Values.enterprise.maxRepos | quote }}
+            - name: ENTERPRISE_MAX_BUILDS_PER_MONTH
+              value: {{ .Values.enterprise.maxBuildsPerMonth | quote }}
+            - name: ENTERPRISE_MAX_USERS
+              value: {{ .Values.enterprise.maxUsers | quote }}
+            - name: ENTERPRISE_LICENSE_FILE
+              value: {{ .Values.enterprise.licenseFile | quote }}
+            - name: ENTERPRISE_LICENSE_MODE
+              value: {{ .Values.enterprise.licenseMode | quote }}
+            - name: ENTERPRISE_LICENSE_SYNC_ENDPOINT
+              value: {{ .Values.enterprise.licenseSyncEndpoint | quote }}
+            - name: ENTERPRISE_LICENSE_UPGRADE_ENDPOINT
+              value: {{ .Values.enterprise.licenseUpgradeEndpoint | quote }}
+            - name: ENTERPRISE_LICENSE_USAGE_REPORTING_ENABLED
+              value: {{ .Values.enterprise.licenseUsageReportingEnabled | quote }}
+            - name: ENTERPRISE_LICENSE_USAGE_ENDPOINT
+              value: {{ .Values.enterprise.licenseUsageEndpoint | quote }}
+            - name: ENTERPRISE_LICENSE_AUTO_SYNC_ENABLED
+              value: {{ .Values.enterprise.licenseAutoSyncEnabled | quote }}
+            - name: ENTERPRISE_LICENSE_AUTO_SYNC_INTERVAL_SECONDS
+              value: {{ .Values.enterprise.licenseAutoSyncIntervalSeconds | quote }}
+            - name: ENTERPRISE_LICENSE_CACHE_GRACE_HOURS
+              value: {{ .Values.enterprise.licenseCacheGraceHours | quote }}
+            - name: ENTERPRISE_LICENSE_CACHE_FILE
+              value: {{ .Values.enterprise.licenseCacheFile | quote }}
+            - name: ENTERPRISE_LICENSE_SIGNATURE_VERIFICATION_REQUIRED
+              value: {{ .Values.enterprise.licenseSignatureVerificationRequired | quote }}
+            - name: ENTERPRISE_LICENSE_PUBLIC_KEY_FILE
+              value: {{ .Values.enterprise.licensePublicKeyFile | quote }}
+            - name: ENTERPRISE_LICENSE_PUBLIC_KEY_SET_FILE
+              value: {{ .Values.enterprise.licensePublicKeySetFile | quote }}
+            {{- if .Values.enterprise.activationTokenSecret.existingSecret }}
+            - name: ENTERPRISE_LICENSE_ACTIVATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.enterprise.activationTokenSecret.existingSecret | quote }}
+                  key: {{ .Values.enterprise.activationTokenSecret.key | quote }}
+            {{- end }}
+            {{- if .Values.enterprise.signingSecret.existingSecret }}
+            - name: ENTERPRISE_LICENSE_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.enterprise.signingSecret.existingSecret | quote }}
+                  key: {{ .Values.enterprise.signingSecret.key | quote }}
+            {{- end }}
+            {{- with .Values.enterprise.publicKeySecret }}
+            {{- if .existingSecret }}
+            - name: ENTERPRISE_LICENSE_PUBLIC_KEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.enterprise.publicKeySetSecret }}
+            {{- if .existingSecret }}
+            - name: ENTERPRISE_LICENSE_PUBLIC_KEY_SET_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .key | quote }}
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            - name: app-data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if .Values.environmentCatalog.enabled }}
+            - name: environment-catalog
+              mountPath: /app/config
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}-pvc
+        {{- if .Values.environmentCatalog.enabled }}
+        - name: environment-catalog
+          configMap:
+            name: {{ include "horizon-self-service-cicd-pipeline-backend.fullname" . }}-environment-catalog
+        {{- end }}
